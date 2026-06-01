@@ -10,6 +10,20 @@ function createLandmarks() {
 }
 
 describe("socket flow", () => {
+  const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+
+  beforeAll(() => {
+    process.env.NODE_ENV = "test";
+  });
+
+  afterAll(() => {
+    if (ORIGINAL_NODE_ENV === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+    }
+  });
+
   it("processes a frame and saves the session on session:end", async () => {
     const sessionPath = path.join(
       os.tmpdir(),

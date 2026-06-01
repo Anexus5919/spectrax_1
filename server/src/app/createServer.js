@@ -28,15 +28,36 @@ function createServer(overrides = {}) {
   const server = http.createServer(app);
   const io = new Server(server, createSocketOptions(config));
 
-  if (SOCKET_AUTH_TOKEN) {
-    io.use((socket, next) => {
-      const token = socket.handshake.auth && socket.handshake.auth.token;
-      if (token !== SOCKET_AUTH_TOKEN) {
-        return next(new Error("Authentication failed: invalid or missing token"));
-      }
-      next();
-    });
+  const nodeEnv = (process.env.NODE_ENV || "").trim().toLowerCase();
+  const allowUnauthenticated = nodeEnv === "development" || nodeEnv === "test";
+
+  if (!SOCKET_AUTH_TOKEN) {
+    if (allowUnauthenticated) {
+      console.warn(
+        "[SpectraX] WARNING: SOCKET_AUTH_TOKEN is not set. WebSocket connections are accepted without authentication.",
+      );
+    } else {
+      console.warn(
+        "[SpectraX] WARNING: SOCKET_AUTH_TOKEN is not set. Unauthenticated WebSocket connections are rejected. Set SOCKET_AUTH_TOKEN, or NODE_ENV=development for local development.",
+      );
+    }
   }
+
+  io.use((socket, next) => {
+    if (!SOCKET_AUTH_TOKEN) {
+      if (allowUnauthenticated) {
+        return next();
+      }
+      return next(
+        new Error("Server misconfiguration: SOCKET_AUTH_TOKEN is not set"),
+      );
+    }
+    const token = socket.handshake.auth && socket.handshake.auth.token;
+    if (token !== SOCKET_AUTH_TOKEN) {
+      return next(new Error("Authentication failed: invalid or missing token"));
+    }
+    next();
+  });
 
   io.use((socket, next) => {
     const ip = socket.handshake.address;
