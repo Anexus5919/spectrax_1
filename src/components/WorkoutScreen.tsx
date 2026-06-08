@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import Draggable, { type DraggableData, type DraggableEvent } from 'react-draggable';
-import { StopCircle, ArrowUpCircle, ArrowDownCircle, Lock, Unlock, Activity } from 'lucide-react';
+import { StopCircle, ArrowUpCircle, ArrowDownCircle, Lock, Unlock, Activity, Volume2, VolumeX } from 'lucide-react';
 import { useCameraPose } from '../hooks/useCameraPose';
 import { overlayRenderer } from '../services/overlayRenderer';
 import { getJointAngles, getJointVisibility } from '../services/angleUtils';
 import { getPostureErrorCategories } from '../engine/feedbackEngine';
 import { exerciseEngine, EngineState } from '../services/exerciseEngine';
 import { ExerciseConfig } from '../config/exercises';
-import { sessionRecorder } from '../services/sessionRecorder';
+import { sessionRecorder, type FrameData } from '../services/sessionRecorder';
 import { skeletalSense } from '../services/skeletalSense'; // Kept on main thread for reliable auto-detect
 import { poseLockService } from '../services/poseLockService';
 import { clipEngine } from '../services/clipEngine';
@@ -17,18 +17,16 @@ import { useWorkoutSync } from '../hooks/useWorkoutSync';
 import { useDisplayConfig } from '../hooks/useDisplayConfig';
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket';
 import { useOffscreenCanvas } from '../hooks/useOffscreenCanvas';
-import { FocusPanel, TimerPanel, RepsPanel, EnginePanel, SensePanel } from './WorkoutPanels';
-import { CameraErrorBoundary } from './CameraErrorBoundary';
+import { FocusPanel, TimerPanel, RepsPanel, EnginePanel, SensePanel, AngleDialPanel } from './WorkoutPanels';
 import { ghostService } from '../services/ghostService';
-import type { FrameData } from '../services/sessionRecorder';
+import type { GhostStats } from '../services/ghostService';
+import { useThrottleLevel } from '../services/performanceThrottleService';
 import { FpsMonitor } from './FpsMonitor';
-import { cameraService } from "../services/cameraService";
-import { poseService } from "../services/poseService";
+import { CameraErrorBoundary } from './CameraErrorBoundary';
+import { gestureService, GestureCommand } from '../services/gestureService';
+import { debounce } from '../utils/debounce';
+import { useSettings } from '../context/SettingsContext';
 
-import { CameraErrorBoundary } from "./CameraErrorBoundary";
-import { gestureService, GestureCommand } from "../services/gestureService";
-import { debounce } from "../utils/debounce";
-import { useThrottleLevel } from "../services/performanceThrottleService";
 // ── Web Worker (Vite native worker bundling) ──────────────────────────────────
 const createPoseWorker = () =>
   new Worker(new URL("../workers/poseWorker.ts", import.meta.url), {
@@ -53,9 +51,11 @@ interface WorkoutScreenProps {
   onAutoDetect?: (key: string) => void;
   bodyType?: BodyType;
   adaptiveFactor?: number;
+  onSnapshotUpdate?: (liveStats: any) => void;
+  onCancel?: () => void;
 }
 
-type WorkoutPanelId = "focus" | "timer" | "reps" | "engine" | "sense";
+type WorkoutPanelId = "focus" | "timer" | "reps" | "engine" | "sense" | "dial";
 
 type PanelPosition = {
   x: number;
@@ -80,6 +80,7 @@ const getDefaultPanelPositions = (): PanelPositions => {
     reps: { x: Math.max(width / 2 - 110, 30), y: Math.max(height - 250, 30) },
     engine: { x: 40, y: Math.max(height - 110, 30) },
     sense: { x: 280, y: Math.max(height - 110, 30) },
+    dial: { x: Math.max(width - 230, 30), y: 150 },
   };
 };
 
@@ -159,11 +160,71 @@ const extrapolateLandmarks = (
   });
 };
 
-export const WorkoutScreen: React.FC<WorkoutScreenProps> = ({ exercise, onEnd, onAutoDetect, bodyType, adaptiveFactor = 1.0 }) => {
+const getProgressiveSpeech = (rawMsg: string, durationMs: number): string => {
+  const cleanMsg = rawMsg.replace(/[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDC00-\uDFFF]/g, "").trim();
+  const lowerMsg = cleanMsg.toLowerCase();
+  
+  let errorType: "depth" | "back" | "knee" | "elbow" | "generic" = "generic";
+  if (lowerMsg.includes("lower") || lowerMsg.includes("deeper") || lowerMsg.includes("depth") || lowerMsg.includes("deep")) {
+    errorType = "depth";
+  } else if (lowerMsg.includes("back") || lowerMsg.includes("spine") || lowerMsg.includes("sag")) {
+    errorType = "back";
+  } else if (lowerMsg.includes("toe") || lowerMsg.includes("knee past")) {
+    errorType = "knee";
+  } else if (lowerMsg.includes("elbow")) {
+    errorType = "elbow";
+  }
+
+  if (durationMs < 15000) {
+    switch (errorType) {
+      case "depth": return "Go lower.";
+      case "back": return "Keep your back straight.";
+      case "knee": return "Knee past toes. Shift weight back.";
+      case "elbow": return "Keep elbows at side.";
+      default: return cleanMsg;
+    }
+  } else if (durationMs < 30000) {
+    switch (errorType) {
+      case "depth": return "Go a little deeper.";
+      case "back": return "Keep a neutral spine.";
+      case "knee": return "Watch your front knee alignment.";
+      case "elbow": return "Tuck your elbows in.";
+      default: return `${cleanMsg}, focus on technique.`;
+    }
+  } else if (durationMs < 60000) {
+    switch (errorType) {
+      case "depth": return "You're close. Keep pushing.";
+      case "back": return "Back straight. Keep pushing.";
+      case "knee": return "Keep weight back. Stay strong.";
+      case "elbow": return "Keep elbows locked in place.";
+      default: return `${cleanMsg}. Keep pushing.`;
+    }
+  } else if (durationMs < 90000) {
+    switch (errorType) {
+      case "depth": return "Still not reaching full depth.";
+      case "back": return "Still sagging your back. Core tight.";
+      case "knee": return "Knee is still past toes.";
+      case "elbow": return "Elbows flaring. Focus on form.";
+      default: return `Still committing form error. Focus up.`;
+    }
+  } else {
+    return "Take a short reset and focus on form.";
+  }
+};
+
+export const WorkoutScreen: React.FC<WorkoutScreenProps> = ({ exercise, onEnd, onAutoDetect, bodyType }) => {
+  const { settings, updateSetting } = useSettings();
+  const voiceFeedbackEnabled = settings.voiceFeedback;
+  const lastSpokenFeedbackRef = useRef<string>("");
+  const lastSpokenTimeRef = useRef<number>(0);
+  const lastMotivationTimeRef = useRef<number>(0);
+  const consecutiveMistakeStartRef = useRef<number>(0);
+  const lastDownStruggleSpokenRef = useRef<boolean>(false);
+  const lastUpPauseSpokenRef = useRef<boolean>(false);
+  const lastErrorCategoryRef = useRef<string>("none");
+
   const bodyTypeRef = useRef(bodyType);
   bodyTypeRef.current = bodyType;
-  const adaptiveFactorRef = useRef(adaptiveFactor);
-  adaptiveFactorRef.current = adaptiveFactor;
   const onAutoDetectRef = useRef(onAutoDetect);
   onAutoDetectRef.current = onAutoDetect;
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -177,22 +238,22 @@ export const WorkoutScreen: React.FC<WorkoutScreenProps> = ({ exercise, onEnd, o
       timer: React.createRef<HTMLDivElement>(),
       reps: React.createRef<HTMLDivElement>(),
       engine: React.createRef<HTMLDivElement>(),
-      sense: React.createRef<HTMLDivElement>()
+      sense: React.createRef<HTMLDivElement>(),
+      dial: React.createRef<HTMLDivElement>()
     };
   }
 
   const panelRefsById = panelRefs.current;
-const [panelsLocked, setPanelsLocked] = useState(true);
-const [cameraError, setCameraError] = useState<string | null>(null);
-const [panelPositions, setPanelPositions] = useState<PanelPositions>(() => getStoredPanelPositions());
-const [showExitModal, setShowExitModal] = useState(false);
+  const [panelsLocked, setPanelsLocked] = useState(true);
+  const [currentAngle, setCurrentAngle] = useState(0);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [panelPositions, setPanelPositions] = useState<PanelPositions>(() => getStoredPanelPositions());
+  const [showExitModal, setShowExitModal] = useState(false);
   const { config: displayConfig, updateConfig: updateDisplayConfig } = useDisplayConfig();
   const [seconds, setSeconds] = useState(0);
   const [vlmProgress, setVlmProgress] = useState(0);
   const [clipResult, setClipResult] = useState<any>(null);
   const { isOnline } = useWorkoutSync();
-  const throttleLevel = useThrottleLevel();
-  const wsSocketRef = useWorkoutWebSocket();
   const srOnly: React.CSSProperties = {
     position: 'absolute',
     width: '1px',
@@ -205,17 +266,6 @@ const [showExitModal, setShowExitModal] = useState(false);
     borderWidth: 0,
   };
 
-const srOnly: React.CSSProperties = {
-  position: 'absolute',
-  width: '1px',
-  height: '1px',
-  padding: 0,
-  margin: '-1px',
-  overflow: 'hidden',
-  clip: 'rect(0, 0, 0, 0)',
-  whiteSpace: 'nowrap',
-  borderWidth: 0,
-};
   const [engineState, setEngineState] = useState<EngineState>({
     reps: 0,
     stage: "up",
@@ -255,26 +305,17 @@ const srOnly: React.CSSProperties = {
   const previousObservedLandmarksRef = useRef<any[] | null>(null);
   const dropoutFrameCountRef = useRef(0);
   const [mismatchError, setMismatchError] = useState<string | null>(null);
-const workerAnglesRef = useRef<Record<string, number>>({});
-const lastProcessTime = useRef(0);
-const frameId = useRef<number | null>(null);
-const countRef = useRef(0);
+  const animationFrameRef = useRef<number | null>(null);
 
-const animationFrameRef = useRef<number | null>(null);
-
-const [showExitModal, setShowExitModal] = useState(false);
-
-const [gestureConfidences, setGestureConfidences] = useState<Record<string, number>>({});
-const [lastGestureCommand, setLastGestureCommand] = useState<GestureCommand | null>(null);
-const [gestureHudVisible, setGestureHudVisible] = useState(false);
-const gestureHudTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-const workoutControlRef = useRef<'idle' | 'running' | 'paused'>('idle');
-const [workoutControlState, setWorkoutControlState] = useState<'idle' | 'running' | 'paused'>('idle');
-
-const ghostFramesRef = useRef<FrameData[]>([]);
-const ghostStatsRef = useRef<GhostStats | null>(null);
-const [hasGhost, setHasGhost] = useState(false);
+  const [gestureConfidences, setGestureConfidences] = useState<Record<string, number>>({});
+  const [lastGestureCommand, setLastGestureCommand] = useState<GestureCommand | null>(null);
+  const [gestureHudVisible, setGestureHudVisible] = useState(false);
+  const gestureHudTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workoutControlRef = useRef<'idle' | 'running' | 'paused'>('idle');
+  const [workoutControlState, setWorkoutControlState] = useState<'idle' | 'running' | 'paused'>('idle');
+  const ghostFramesRef = useRef<FrameData[]>([]);
+  const ghostStatsRef = useRef<GhostStats | null>(null);
+  const [hasGhost, setHasGhost] = useState(false);
 
   const clampPanelPositions = useCallback((positions: PanelPositions) => {
     const { width, height } = getViewportSize();
@@ -296,10 +337,6 @@ const [hasGhost, setHasGhost] = useState(false);
   useEffect(() => {
     bodyTypeRef.current = bodyType;
   }, [bodyType]);
-
-  useEffect(() => {
-    adaptiveFactorRef.current = adaptiveFactor;
-  }, [adaptiveFactor]);
 
   useEffect(() => {
     onAutoDetectRef.current = onAutoDetect;
@@ -350,34 +387,185 @@ const [hasGhost, setHasGhost] = useState(false);
   // for comparison — it doesn't need to cause a re-render on its own.
   const prevRepsRef = useRef(0);
 
-  // ── Announce pose correction feedback ─────────────────────────────────────────
-  // useEffect runs ONLY when engineState.feedback changes to a different string.
-  // React's dependency comparison handles deduplication automatically — the same
-  // message repeated across frames will NOT re-trigger this effect.
+  // ── Unified Virtual Trainer Voice Coaching System ──────────────────────────────
   useEffect(() => {
+    // 1. Maintain ARIA accessibility announcements first
     setFeedbackAnnouncement(engineState.feedback);
-  }, [engineState.feedback]);
-
-  // ── Announce rep count on each increment ─────────────────────────────────────
-  // We check prevRepsRef so we only announce when reps actually go up.
-  // This prevents announcing "Rep 0" on first render.
-  useEffect(() => {
-    if (engineState.reps > 0 && engineState.reps > prevRepsRef.current) {
-      // Announce the number for screen readers
+    
+    const repCompleted = engineState.reps > prevRepsRef.current && engineState.reps > 0;
+    if (repCompleted) {
       setRepAnnouncement(engineState.reps.toString());
-      
-      // Voice Coach feature: Physically speak the rep count out loud
+    }
+    
+    // Update the ref so we don't double-trigger rep announcements
+    prevRepsRef.current = engineState.reps;
+
+    // Reset struggle/pause triggers on stage transitions
+    if (engineState.stage === "up") {
+      lastDownStruggleSpokenRef.current = false;
+    } else if (engineState.stage === "down") {
+      lastUpPauseSpokenRef.current = false;
+    }
+
+    // 2. Guard for voice output settings (Immediate Mute Guard)
+    if (!voiceFeedbackEnabled) {
       if ('speechSynthesis' in window) {
-        // Cancel any ongoing speech to prioritize the current rep count
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(engineState.reps.toString());
-        // Optional: you can tune rate and pitch here
-        utterance.rate = 1.1; 
-        window.speechSynthesis.speak(utterance);
+      }
+      return;
+    }
+
+    if (!('speechSynthesis' in window)) {
+      return;
+    }
+
+    const msg = engineState.feedback.trim();
+    const cleanMsg = msg.replace(/[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDC00-\uDFFF]/g, "").trim();
+
+    // Setup / non-coaching messages ignore list
+    const ignoreList = [
+      "establishing posture...",
+      "get into position...",
+      "ready 🟢",
+      "sensors blurred — position body",
+      "good form ✅"
+    ];
+    const isSetupOrNeutral = ignoreList.some(item => msg.toLowerCase().includes(item)) || !msg;
+
+    // Completed rep praise depth outcomes (these are spoken on rep complete, not mid-rep)
+    const praiseList = [
+      "deep squat ✅",
+      "parallel depth ✅",
+      "deep pushup ✅",
+      "good depth ✅"
+    ];
+    const isRepPraiseMessage = praiseList.some(item => msg.toLowerCase().includes(item));
+
+    // Active correction/guidance cue (not setup/neutral, not rep praise)
+    const isCoachingCue = !isSetupOrNeutral && !isRepPraiseMessage;
+
+    // Update mistake start ref by tracking correction categories
+    const lowerMsg = cleanMsg.toLowerCase();
+    let currentCategory: "depth" | "back" | "knee" | "elbow" | "generic" | "none" = "none";
+    if (isCoachingCue) {
+      if (lowerMsg.includes("lower") || lowerMsg.includes("deeper") || lowerMsg.includes("depth") || lowerMsg.includes("deep")) {
+        currentCategory = "depth";
+      } else if (lowerMsg.includes("back") || lowerMsg.includes("spine") || lowerMsg.includes("sag")) {
+        currentCategory = "back";
+      } else if (lowerMsg.includes("toe") || lowerMsg.includes("knee past")) {
+        currentCategory = "knee";
+      } else if (lowerMsg.includes("elbow")) {
+        currentCategory = "elbow";
+      } else {
+        currentCategory = "generic";
       }
     }
-    prevRepsRef.current = engineState.reps;
-  }, [engineState.reps]);
+
+    if (currentCategory !== "none") {
+      if (consecutiveMistakeStartRef.current === 0 || currentCategory !== lastErrorCategoryRef.current) {
+        consecutiveMistakeStartRef.current = Date.now();
+      }
+      lastErrorCategoryRef.current = currentCategory;
+    } else {
+      consecutiveMistakeStartRef.current = 0;
+      lastErrorCategoryRef.current = "none";
+    }
+
+    const now = Date.now();
+    const MISTAKE_COOLDOWN = 8000;       // 8.0s persistent mistake rate limiter (target: 10-15 prompts / 2 mins)
+    const MOTIVATION_COOLDOWN = 8000;   // 8.0s between motivational speech events
+
+    const isSafetyWarning = !!mismatchError || (isCoachingCue && (engineState.status === "red" || cleanMsg.toLowerCase().includes("back straight") || cleanMsg.toLowerCase().includes("knee past toes")));
+
+    // Decide what the trainer should say
+    let speechCandidate = "";
+    let shouldSpeak = false;
+    let isMotivationalPhraseUsed = false;
+
+    // A list of encouragement phrases
+    const motivations = ["You've got this!", "Keep pushing!", "Stay strong!", "Almost there!", "Stay with it!"];
+    const getRandomMotivation = () => motivations[Math.floor(Math.random() * motivations.length)];
+
+    if (mismatchError) {
+      const candidate = `Exercise mismatch. You appear to be doing ${mismatchError.toLowerCase()}`;
+      const isNewMessage = candidate !== lastSpokenFeedbackRef.current;
+      const cooldownElapsed = now - lastSpokenTimeRef.current > MISTAKE_COOLDOWN;
+      if (isNewMessage || cooldownElapsed) {
+        speechCandidate = candidate;
+        shouldSpeak = true;
+      }
+    } else if (repCompleted) {
+      // Prioritize correction message if the completed rep was faulty
+      if (isCoachingCue) {
+        speechCandidate = getProgressiveSpeech(msg, now - consecutiveMistakeStartRef.current);
+        shouldSpeak = true;
+      } else {
+        // Correct rep completed with green form: speak rep count + positive praise
+        const praises = [
+          "Great rep!",
+          "Excellent posture!",
+          "Good form!",
+          "Nice job!"
+        ];
+        const randomPraise = praises[Math.floor(Math.random() * praises.length)];
+        speechCandidate = `${engineState.reps}. ${randomPraise}`;
+        shouldSpeak = true;
+      }
+    } else {
+      // 1. Struggle Trigger: holding the load phase (down stage) for too long (> 3.0s) and NO active mistakes
+      if (engineState.stage === "down" && (now - engineState.stageStartTime > 3000) && !lastDownStruggleSpokenRef.current && !isCoachingCue) {
+        if (now - lastMotivationTimeRef.current > MOTIVATION_COOLDOWN) {
+          const strugglePraises = ["Almost there, stay strong!", "Stay strong, you've got this!", "Keep holding!"];
+          speechCandidate = strugglePraises[Math.floor(Math.random() * strugglePraises.length)];
+          shouldSpeak = true;
+          lastDownStruggleSpokenRef.current = true;
+          isMotivationalPhraseUsed = true;
+        }
+      }
+      
+      // 2. Inactivity Trigger: paused at the top (up stage) for too long (> 10.0s) and NO active mistakes
+      else if (engineState.stage === "up" && engineState.reps > 0 && (now - engineState.lastRepTime > 10000) && !lastUpPauseSpokenRef.current && !isCoachingCue) {
+        if (now - lastMotivationTimeRef.current > MOTIVATION_COOLDOWN) {
+          speechCandidate = `Let's go, ${getRandomMotivation().toLowerCase()}`;
+          shouldSpeak = true;
+          lastUpPauseSpokenRef.current = true;
+          isMotivationalPhraseUsed = true;
+        }
+      }
+
+      // 3. Standard Coaching Cues (Escalating & Progressive)
+      else if (isCoachingCue) {
+        const candidate = getProgressiveSpeech(msg, now - consecutiveMistakeStartRef.current);
+        const isNewMessage = candidate !== lastSpokenFeedbackRef.current;
+        const cooldownElapsed = now - lastSpokenTimeRef.current > MISTAKE_COOLDOWN;
+
+        if (isSafetyWarning) {
+          if (isNewMessage || cooldownElapsed) {
+            speechCandidate = candidate;
+            shouldSpeak = true;
+          }
+        } else if (isNewMessage && cooldownElapsed) {
+          speechCandidate = candidate;
+          shouldSpeak = true;
+        }
+      }
+    }
+
+    // Execute speech
+    if (shouldSpeak && speechCandidate) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(speechCandidate);
+      utterance.rate = 1.05; // Slightly faster for responsiveness
+      window.speechSynthesis.speak(utterance);
+
+      lastSpokenFeedbackRef.current = speechCandidate; // Store actual spoken candidate
+      lastSpokenTimeRef.current = now;
+
+      if (isMotivationalPhraseUsed) {
+        lastMotivationTimeRef.current = now;
+      }
+    }
+  }, [engineState.feedback, engineState.reps, engineState.stage, voiceFeedbackEnabled, mismatchError]);
 
   // ── Announce exercise mismatch errors ─────────────────────────────────────────
   // role="alert" with aria-live="assertive" will interrupt the screen reader
@@ -389,7 +577,8 @@ const [hasGhost, setHasGhost] = useState(false);
   }, [mismatchError]);
 
 
-  const wsSocketRef = useRef<WebSocket | null>(null);
+  const workerAnglesRef = useRef<Record<string, number>>({});
+  const wsSocketRef = useWorkoutWebSocket();
   const offscreenEnabledRef = useRef<boolean>(false);
   const { initOffscreenCanvas } = useOffscreenCanvas();
 
@@ -397,6 +586,11 @@ const [hasGhost, setHasGhost] = useState(false);
     // ── SINGLE USER LOCK: Filter out erratic detections or second people ──
     const filteredResults = poseLockService.filter(results);
     if (!filteredResults || !filteredResults.poseLandmarks) return;
+
+    // Calculate primary joint angle on every frame for real-time dial updates
+    const currentFrameAngles = getJointAngles(results.poseLandmarks);
+    const primaryJoint = exercise.primaryJoint || 'knee';
+    setCurrentAngle(currentFrameAngles[primaryJoint] || 0);
 
     // ── GESTURE COMMAND PARSING ─────────────────────────────────────────────
     const gestureResult = gestureService.analyze(results.poseLandmarks);
@@ -469,7 +663,9 @@ const [hasGhost, setHasGhost] = useState(false);
               ? "jumpingJack"
               : label.includes("bicep curl")
                 ? "bicepCurl"
-                : "";
+                : label.includes("chest press")
+                  ? "chestPressPunches"
+                  : "";
 
       if (
         detectedKey &&
@@ -509,12 +705,14 @@ const [hasGhost, setHasGhost] = useState(false);
 
     const visibility = getJointVisibility(results.poseLandmarks);
 
-    // Adjust structural thresholds dynamically based on body-type calibration factor
+    // Adjust structural thresholds dynamically based on active detected body type
     const activeConfig = { ...exercise };
-    const factor = adaptiveFactorRef.current;
-    if (factor !== 1.0) {
-      activeConfig.downThreshold = Math.round(activeConfig.downThreshold * factor);
-      activeConfig.upThreshold = Math.round(activeConfig.upThreshold * factor);
+    if (bodyTypeRef.current === "endo" && activeConfig.key === "squat") {
+      activeConfig.downThreshold += 5; // Softer extension limit due to compacted torso proportions
+    } else if (bodyTypeRef.current === "ecto" && activeConfig.key === "squat") {
+      activeConfig.downThreshold -= 5; // Stricter requirement for longer limbs to reach true parallel
+    } else if (bodyTypeRef.current === "endo" && activeConfig.key === "pushup") {
+      activeConfig.downThreshold -= 5; // Wider torsos reach absolute down plane sooner
     }
 
     // 2. Process through multi-exercise engine (stays on main thread — manages state)
@@ -579,6 +777,7 @@ const [hasGhost, setHasGhost] = useState(false);
   useEffect(() => {
     isMountedRef.current = true;
     startTimeRef.current = Date.now();
+    exerciseEngine.reset();
 
     // Load Ghost Data
     const ghostData = ghostService.loadGhost(exercise.key);
@@ -591,7 +790,6 @@ const [hasGhost, setHasGhost] = useState(false);
       ghostStatsRef.current = null;
       setHasGhost(false);
     }
-
     // ── Spawn Web Worker ──────────────────────────────────────────────────────
     const worker = createPoseWorker();
     workerRef.current = worker;
@@ -619,7 +817,7 @@ const [hasGhost, setHasGhost] = useState(false);
 
         sessionRecorder.start();
         await clipEngine.init();
-await startSystem();
+        await startSystem();
       } catch (err: any) {
         console.error("Workout camera error:", err);
         if (err.message === 'PERMISSION_DENIED' || err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
@@ -644,6 +842,7 @@ await startSystem();
       worker.terminate();
       clearInterval(timerRef);
       gestureService.reset();
+      exerciseEngine.reset();
       if (gestureHudTimerRef.current) clearTimeout(gestureHudTimerRef.current);
     };
   }, [exercise, startSystem, stopSystem]);
@@ -707,7 +906,7 @@ await startSystem();
       tags: clipEngine.generateSessionTags({
         accuracy: accuracy,
         avgConfidence: clipResult?.confidence || 0.8,
-mistakes:Object.keys(finalMistakes),
+        mistakes: Object.keys(finalMistakes),
         duration: seconds,
       }),
     });
@@ -891,11 +1090,33 @@ mistakes:Object.keys(finalMistakes),
           zIndex: 10,
           display: "flex",
           justifyContent: "space-between",
+          alignItems: "flex-start",
           padding: "30px",
           pointerEvents: "none",
         }}
       >
-        <div className="glass animate-in" style={{ padding: "16px 24px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px", pointerEvents: "auto" }}>
+          <button
+            onClick={() => onCancel && onCancel()}
+            className="btn-neon"
+            aria-label="Exit Workout"
+            style={{
+              padding: "8px 16px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              fontSize: "0.85rem",
+              background: "rgba(0, 240, 255, 0.1)",
+              border: "1px solid rgba(0, 240, 255, 0.3)",
+              color: "var(--neon-cyan)",
+              width: "fit-content",
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            EXIT
+          </button>
+          
+          <div className="glass animate-in" style={{ padding: "16px 24px", pointerEvents: "none" }}>
           <div
             style={{
               fontSize: "0.65rem",
@@ -932,6 +1153,7 @@ mistakes:Object.keys(finalMistakes),
               </span>
             )}
           </div>
+        </div>
         </div>
 
         <div
@@ -980,6 +1202,14 @@ mistakes:Object.keys(finalMistakes),
         </button>
         <button
           type="button"
+          className={`workout-lock-toggle ${voiceFeedbackEnabled ? 'is-locked' : 'is-unlocked'}`}
+          onClick={() => updateSetting('voiceFeedback', !voiceFeedbackEnabled)}
+        >
+          {voiceFeedbackEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+          {voiceFeedbackEnabled ? 'Voice Coach: ON' : 'Voice Coach: OFF'}
+        </button>
+        <button
+          type="button"
           className={`workout-lock-toggle is-unlocked`}
           onClick={() => updateDisplayConfig({ skeletonWires: !displayConfig.skeletonWires })}
         >
@@ -1007,6 +1237,7 @@ mistakes:Object.keys(finalMistakes),
         {renderDraggablePanel('reps', '', <RepsPanel reps={engineState.reps} statusColor={statusColor} />)}
         {renderDraggablePanel('engine', '', <EnginePanel status={engineState.status} statusColor={statusColor} />)}
         {renderDraggablePanel('sense', '', <SensePanel clipEngine={clipEngine} clipResult={clipResult} />)}
+        {renderDraggablePanel('dial', '', <AngleDialPanel angle={currentAngle} label={exercise.primaryJoint} statusColor={statusColor} />)}
       </div>
 
       {/* MID-SET MISMATCH ALERT */}
@@ -1095,12 +1326,14 @@ mistakes:Object.keys(finalMistakes),
             </span>
           </div>
           <p
+            className="pb-4"
             style={{
               fontFamily: "var(--font-heading)",
               fontSize: "1.8rem",
               color: "#fff",
               letterSpacing: "2px",
               margin: "10px 0",
+              paddingBottom: "16px",
             }}
             aria-live="assertive"
             aria-atomic="true"

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState , useCallback } from 'react';
 import { useCameraPose } from '../hooks/useCameraPose';
 import { overlayRenderer } from '../services/overlayRenderer';
 import { calibrationLogic, CalibrationResult } from '../services/calibrationLogic';
-import { Camera, AlertCircle, Dumbbell, Hand } from 'lucide-react';
+import { Camera, AlertCircle, Dumbbell, Hand, User, StopCircle, Activity } from 'lucide-react';
 import { ExerciseConfig, exercises } from '../config/exercises';
 import { bodyTypeEngine, BodyType, BodyTypeResult } from '../services/bodyTypeEngine';
 import { gestureService, GestureResult } from '../services/gestureService';
@@ -71,6 +71,7 @@ export const CalibrationScreen: React.FC<CalibrationScreenProps> = ({
   const [countdownSeconds, setCountdownSeconds] = useState(3);
   
   const [hoveredExercise, setHoveredExercise] = useState<string | null>(null);
+  const[expandedExercise, setExpandedExercise] = useState<string | null>(null);
   
   const frameId = useRef<number>(0);
   const lastProcessTime = useRef<number>(0);
@@ -171,104 +172,8 @@ export const CalibrationScreen: React.FC<CalibrationScreenProps> = ({
       setAnnouncement(`Starting in ${countdownSeconds}`);
     }
   }, [countdownSeconds, countdownActive]);
-const startSystem = useCallback(async () => {
-  if (!videoRef.current || !canvasRef.current) return;
 
-  isMountedRef.current = true;
-  frameIndexRef.current = 0;
 
-  try {
-    if (setupContext) {
-      const ctx = canvasRef.current.getContext("2d");
-      if (ctx) overlayRenderer.setContext(ctx);
-    }
-
-    await cameraService.startCamera(videoRef.current);
-
-    poseService.onResults((results) => {
-      if (!isMountedRef.current) return;
-
-      const evaluation = calibrationLogic.evaluate(results);
-      setResult(evaluation);
-
-      if (results.poseLandmarks) {
-        const bt = bodyTypeEngine.analyze(results.poseLandmarks);
-        setBodyTypeRes(bt);
-
-        if (bt.bodyType !== "scanning" && bt.confidence > 0.8) {
-          onBodyTypeDetected(bt.bodyType);
-        }
-
-        const gesture = gestureService.analyze(results.poseLandmarks);
-        setGestureResult(gesture);
-      }
-
-      const primaryJoints = selectedExercise.joints?.flat() || [];
-      overlayRenderer.draw(results, evaluation.status, primaryJoints);
-    });
-
-    const processLoop = (timestamp: number) => {
-      if (!isMountedRef.current) return;
-
-      const elapsed = timestamp - lastProcessTime.current;
-
-      if (elapsed > 1000 / FPS_LIMIT) {
-        if (
-          videoRef.current &&
-          videoRef.current.readyState >= 2 &&
-          !videoRef.current.paused
-        ) {
-          poseService.send(videoRef.current);
-        }
-
-        lastProcessTime.current = timestamp;
-      }
-
-      frameId.current = requestAnimationFrame(processLoop);
-    };
-
-    frameId.current = requestAnimationFrame(processLoop);
-
-  } catch (err) {
-    console.error("startSystem error:", err);
-  }
-}, []);
-
-// ── Announce camera errors ─────────────────────────────────────────────────────
-useEffect(() => {
-  if (error) {
-    setAnnouncement(
-      "Camera error. Please verify camera access and refresh the page."
-    );
-  }
-}, [error]); 
-    frameId.current = requestAnimationFrame(processLoop);
-
-  } catch (err: any) {
-    if (isMountedRef.current) {
-      setError(
-        err.message === "PERMISSION_DENIED"
-          ? "CAMERA_PERMISSION_DENIED"
-          : "Hardware synchronization error. Verify camera and refresh."
-      );
-
-      setResult((prev) => ({
-        ...prev,
-        status: "red",
-        message: "Sync failed",
-      }));
-    }
-  }
-}, [
-  selectedExercise,
-  onBodyTypeDetected,
-  overlayRenderer,
-  calibrationLogic,
-  cameraService,
-  poseService,
-  bodyTypeEngine,
-  gestureService,
-]);*/
 
 
   useEffect(() => {
@@ -330,9 +235,9 @@ useEffect(() => {
     
     const type = bodyTypeRes.bodyType;
     const orderMap: Record<string, string[]> = {
-      ecto: ['squat', 'pushup', 'bicepCurl', 'plank', 'jumpingJack', 'shoulderPress'],
-      meso: ['pushup', 'squat', 'jumpingJack', 'bicepCurl', 'plank', 'shoulderPress'],
-      endo: ['jumpingJack', 'squat', 'plank', 'pushup', 'bicepCurl', 'shoulderPress']
+      ecto: ['squat', 'pushup', 'bicepCurl', 'plank', 'jumpingJack', 'shoulderPress', 'chestPressPunches'],
+      meso: ['pushup', 'squat', 'jumpingJack', 'bicepCurl', 'plank', 'shoulderPress', 'chestPressPunches'],
+      endo: ['jumpingJack', 'squat', 'plank', 'pushup', 'bicepCurl', 'shoulderPress', 'chestPressPunches']
     };
     
     const order = orderMap[type] || [];
@@ -395,13 +300,139 @@ useEffect(() => {
         
         {/* Header & Exercise Selector */}
         <div className="animate-in" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', pointerEvents: 'all' }}>
-          <div className="calib-header">
-            <div className="glass" style={{ padding: '12px', borderRadius: '12px' }}>
-              <Camera color="var(--neon-cyan)" size={24} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="calib-header">
+              <div className="glass" style={{ padding: '12px', borderRadius: '12px' }}>
+                <Camera color="var(--neon-cyan)" size={24} />
+              </div>
+              <div>
+                <h2 className="calib-title">Camera Calibration</h2>
+                <p className="calib-subtitle">Step into frame and hold still</p>
+              </div>
             </div>
-            <div>
-              <h2 className="calib-title">Camera Calibration</h2>
-              <p className="calib-subtitle">Step into frame and hold still</p>
+
+            {/* Quick Start Panel */}
+            <div className="glass calib-onboarding-panel" style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '24px',
+              padding: '24px',
+              width: '320px',
+              border: '1px solid var(--glass-border)',
+              boxShadow: 'var(--glass-shadow)',
+              background: 'var(--glass-bg)',
+              pointerEvents: 'all'
+            }}>
+              {/* Header: QUICK START */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '12px' }}>
+                <Activity size={24} color="var(--neon-cyan)" />
+                <span style={{
+                  fontFamily: 'var(--font-heading)',
+                  fontSize: '1.2rem',
+                  fontWeight: 800,
+                  letterSpacing: '2px',
+                  color: 'var(--neon-cyan)',
+                  textTransform: 'uppercase'
+                }}>
+                  ⚡ QUICK START
+                </span>
+              </div>
+
+              {/* Step 1: FULL BODY VISIBLE */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '40px' }}>
+                  <User size={32} color="var(--text-primary)" />
+                </div>
+                <div>
+                  <div style={{
+                    fontFamily: 'var(--font-heading)',
+                    fontSize: '1.1rem',
+                    fontWeight: 800,
+                    color: 'var(--text-primary)',
+                    letterSpacing: '1px'
+                  }}>
+                    FULL BODY VISIBLE
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 2: START */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '40px', marginTop: '4px' }}>
+                  <Hand size={32} color="var(--neon-green)" />
+                </div>
+                <div>
+                  <div style={{
+                    fontFamily: 'var(--font-heading)',
+                    fontSize: '1.1rem',
+                    fontWeight: 800,
+                    color: 'var(--text-primary)',
+                    letterSpacing: '1px'
+                  }}>
+                    START
+                  </div>
+                  <div style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: '0.9rem',
+                    color: 'var(--text-secondary)',
+                    marginTop: '2px'
+                  }}>
+                    Raise both hands
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 3: PAUSE */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '40px', marginTop: '4px' }}>
+                  <Hand size={32} color="var(--neon-yellow)" />
+                </div>
+                <div>
+                  <div style={{
+                    fontFamily: 'var(--font-heading)',
+                    fontSize: '1.1rem',
+                    fontWeight: 800,
+                    color: 'var(--text-primary)',
+                    letterSpacing: '1px'
+                  }}>
+                    PAUSE
+                  </div>
+                  <div style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: '0.9rem',
+                    color: 'var(--text-secondary)',
+                    marginTop: '2px'
+                  }}>
+                    Raise one hand
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 4: STOP */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '40px', marginTop: '4px' }}>
+                  <StopCircle size={32} color="var(--neon-red)" />
+                </div>
+                <div>
+                  <div style={{
+                    fontFamily: 'var(--font-heading)',
+                    fontSize: '1.1rem',
+                    fontWeight: 800,
+                    color: 'var(--text-primary)',
+                    letterSpacing: '1px'
+                  }}>
+                    STOP
+                  </div>
+                  <div style={{
+                    fontFamily: 'var(--font-body)',
+                    fontSize: '0.9rem',
+                    color: 'var(--text-secondary)',
+                    marginTop: '2px'
+                  }}>
+                    Cross arms
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -441,7 +472,29 @@ useEffect(() => {
                         alignItems: 'center'
                       }}
                     >
-                      <span>{ex.name.toUpperCase()}</span>
+                      <div
+                        style = {{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}
+                        >
+                          <span>{ex.name.toUpperCase()}</span>
+                          <span
+                          title = "view guide"
+                          onClick = {(e) =>{
+                            e.stopPropagation();
+                            setExpandedExercise(expandedExercise === ex.key ? null : ex.key);
+                          }}
+                          style={{
+                            cursor: 'pointer',
+                            fontSize: '0.8rem',
+                            fontWeight: 'bold',
+                          }}
+                          >{expandedExercise === ex.key ? '▲' : '▼'}
+                          </span>
+                      </div>
+        
                       <span style={{ 
                         fontSize: '0.65rem', 
                         opacity: 0.8,
@@ -452,6 +505,53 @@ useEffect(() => {
                         {sessions.filter(s => s.exerciseType === ex.name).reduce((sum, s) => sum + s.totalReps, 0)} REPS
                       </span>
                     </button>
+                    {expandedExercise === ex.key &&  ex.guide &&(
+                      <div 
+                      style = {{
+                        marginTop: '6px',
+                        padding: '16px',
+                        borderRadius: '12px',
+                        background: 'rgba(168,85,247,0.08)',
+                        border: '1px solid rgba(168,85,247,0.2)',
+                        fontSize: '0.75rem',
+                        color:'var(--text-secondary)',
+                      }} >
+                        <h4 style = {{
+                          color: 'var(--neon-purple)',
+                          marginBottom: '8px',
+                          marginTop:'12px'
+                        }}>Instructions</h4>
+                        <ul style = {{
+                          marginLeft: '16px',
+                          marginBottom: '12px',
+                        }}>
+                          {ex.guide?.instructions.map((item,idx) =>(
+                            <li key = {idx}>{item}</li>
+                          ))}
+                        </ul>
+                        <h4 style = {{
+                          color: 'var(--neon-purple)',
+                          marginBottom: '8px',
+                          marginTop:'12px'
+                        }}>Common Mistakes</h4>
+                        <ul style = {{
+                          marginLeft: '16px',
+                          marginBottom: '12px',
+                        }}>
+                          {ex.guide?.commonMistakes.map((item,idx) =>(
+                            <li key = {idx}>{item}</li>
+                          ))}
+                        </ul>
+                        <h4 style = {{
+                          color: 'var(--neon-purple)',
+                          marginBottom: '8px',
+                          marginTop:'12px'
+                        }}>Target Muscles</h4>
+                        <div>
+                          {ex.guide?.targetMuscles.join(',')}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Video Overlay */}
                     { (hoveredExercise === ex.key || (selectedExercise.key === ex.key && hoveredExercise === null)) && ex.demoUrl && (
@@ -459,7 +559,7 @@ useEffect(() => {
                         className="animate-in"
                         style={{
                           position: 'absolute',
-                          right: '105%', // Pop out to the left
+                          right: 'calc(100% + 24px)', // Clear the panel's 16px padding + 8px gap
                           top: '50%',
                           transform: 'translateY(-50%)',
                           width: '240px', /* <--- INCREASED SIZE HERE */
@@ -487,7 +587,7 @@ useEffect(() => {
              </div>
 
              {/* Total Reps Lifetime Stats - Small Section */}
-             <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+             <div style={{ marginTop: '20px', paddingTop: '16px', paddingBottom: '16px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                <div style={{ fontSize: '0.65rem', color: 'var(--neon-cyan)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '12px', fontWeight: 600 }}>LIFETIME STATS</div>
                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {Object.values(exercises).map(ex => {
@@ -522,7 +622,7 @@ useEffect(() => {
             </div>
           ) : (
             <div className="glass animate-in" style={{ padding: '24px 40px', border: `1px solid ${statusColor}`, background: 'rgba(13, 17, 39, 0.9)', minWidth: '400px' }}>
-               <p style={{ fontFamily: 'var(--font-heading)', fontSize: '1.4rem', color: statusColor, letterSpacing: '4px', textShadow: `0 0 15px ${statusColor}44` }}>
+               <p className="pb-4" style={{ fontFamily: 'var(--font-heading)', fontSize: '1.4rem', color: statusColor, letterSpacing: '4px', textShadow: `0 0 15px ${statusColor}44`, paddingBottom: '16px' }}>
                 {result.message.toUpperCase()}
                </p>
                <div style={{ height: '4px', background: 'rgba(255,255,255,0.05)', margin: '16px 0', position: 'relative', overflow: 'hidden', borderRadius: '2px' }}>
@@ -588,7 +688,7 @@ useEffect(() => {
                     hidden live region at the top of the JSX, which covers ALL states
                     (calibrating, ready, pose lost, countdown, error) — not just this one.
                   */}
-                  <div style={{ color: 'var(--neon-yellow)', fontWeight: 700, fontSize: '0.85rem' }}>
+                  <div className="pb-4" style={{ color: 'var(--neon-yellow)', fontWeight: 700, fontSize: '0.85rem', paddingBottom: '16px' }}>
                     {result.message}
                   </div>
               </div>
@@ -623,6 +723,11 @@ useEffect(() => {
         }
         .radar-ping.loading::after {
           animation: radar-pulse 1s infinite;
+        }
+        @media (max-width: 1024px) {
+          .calib-onboarding-panel {
+            display: none !important;
+          }
         }
       `}</style>
     </div>
