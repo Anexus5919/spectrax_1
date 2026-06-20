@@ -42,7 +42,7 @@ export interface SessionSnapshot {
 // ─── Yjs Document Structure ──────────────────────────────────────────────────
 
 const YJS_STORE = "yjs_updates";
-const DB_NAME = "spectrax_db";
+const DB_NAME = "spectrax_crdt_db";
 const DB_VERSION = 4; // Bumped for Yjs store
 
 let dbPromise: Promise<IDBDatabase> | null = null;

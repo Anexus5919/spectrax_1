@@ -47,7 +47,7 @@ export interface SyncStatus {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DB_NAME = "spectrax_db";
-const DB_VERSION = 4; // v4: added composite 'synced_userId' index (fix #741)
+const DB_VERSION = 5; // v4: added composite 'synced_userId' index (fix #741)
 const WORKOUTS_STORE = "workout_sessions";
 const SYNC_STATUS_STORE = "sync_status";
 
@@ -58,24 +58,44 @@ function createDB(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
     req.onupgradeneeded = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result;
+      const target = e.target as IDBOpenDBRequest;
+      const db = target.result;
+      const tx = target.transaction as IDBTransaction;
 
-      // Recreate workouts store to change keyPath from "id" to "localId"
+      let workoutStore: IDBObjectStore;
       if (db.objectStoreNames.contains(WORKOUTS_STORE)) {
-        db.deleteObjectStore(WORKOUTS_STORE);
+        if (e.oldVersion < 4) {
+          // Recreate workouts store to change keyPath from "id" to "localId"
+          db.deleteObjectStore(WORKOUTS_STORE);
+          workoutStore = db.createObjectStore(WORKOUTS_STORE, {
+            keyPath: "localId",
+            autoIncrement: true,
+          });
+        } else {
+          workoutStore = tx.objectStore(WORKOUTS_STORE);
+        }
+      } else {
+        workoutStore = db.createObjectStore(WORKOUTS_STORE, {
+          keyPath: "localId",
+          autoIncrement: true,
+        });
       }
 
-      const workoutStore = db.createObjectStore(WORKOUTS_STORE, {
-        keyPath: "localId",
-        autoIncrement: true,
-      });
-      workoutStore.createIndex('timestamp', 'timestamp', { unique: false });
-      workoutStore.createIndex('userId', 'userId', { unique: false });
-      workoutStore.createIndex('synced', 'synced', { unique: false });
+      if (!workoutStore.indexNames.contains('timestamp')) {
+        workoutStore.createIndex('timestamp', 'timestamp', { unique: false });
+      }
+      if (!workoutStore.indexNames.contains('userId')) {
+        workoutStore.createIndex('userId', 'userId', { unique: false });
+      }
+      if (!workoutStore.indexNames.contains('synced')) {
+        workoutStore.createIndex('synced', 'synced', { unique: false });
+      }
       // Composite index for efficient per-user unsynced queries (fix #741).
       // Enables filtering at DB level via IDBKeyRange instead of loading every
       // user's records into JS memory and filtering afterwards.
-      workoutStore.createIndex('synced_userId', ['synced', 'userId'], { unique: false });
+      if (!workoutStore.indexNames.contains('synced_userId')) {
+        workoutStore.createIndex('synced_userId', ['synced', 'userId'], { unique: false });
+      }
 
       // Create sync status store
       if (!db.objectStoreNames.contains(SYNC_STATUS_STORE)) {
