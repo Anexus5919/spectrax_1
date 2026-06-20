@@ -149,32 +149,13 @@ export async function getLocalWorkouts(
 }
 
 /**
- * Get unsynced workouts for a specific user from IndexedDB.
- *
- * Bug fix for #741: previously this queried the single-field 'synced' index
- * with getAll(false), which loaded EVERY unsynced record across ALL users on
- * the device into memory and then filtered by userId in JavaScript.
- * On a shared device this means User B can read and sync User A's private
- * workout data — a data isolation failure and privacy vulnerability.
- *
- * Fix: use the new composite 'synced_userId' index with IDBKeyRange.only() so
- * that IndexedDB itself filters records — only the current user's unsynced
- * workouts are ever loaded into memory.
+ * Get a specific user's unsynced workouts from IndexedDB.
  */
 export async function getUnsyncedWorkouts(
   userId: string,
 ): Promise<WorkoutRecord[]> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(WORKOUTS_STORE, 'readonly');
-    const store = tx.objectStore(WORKOUTS_STORE);
-    const index = store.index('synced_userId');
-    // [false, userId] matches records where synced === false AND userId === <current user>.
-    const range = IDBKeyRange.only([false, userId]);
-    const req = index.getAll(range);
-    req.onsuccess = () => resolve(req.result as WorkoutRecord[]);
-    req.onerror = () => reject(req.error);
-  });
+  const all = await getLocalWorkouts(userId);
+  return all.filter((w) => !w.synced);
 }
 
 /**
