@@ -8,6 +8,10 @@ const { createHealthRouter } = require("../modules/health/health.routes");
 function createApp({ sessionStore, config = getConfig() }) {
   const app = express();
 
+  if (config.trustProxy > 0) {
+    app.set("trust proxy", config.trustProxy);
+  }
+
   app.use(cors(createCorsOptions(config)));
   app.use(express.json({ limit: PAYLOAD_LIMIT }));
   app.use(createHealthRouter({ sessionStore }));
