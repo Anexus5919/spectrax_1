@@ -5,7 +5,7 @@ const runtime = createServer();
 
 let shuttingDown = false;
 
-process.on("SIGINT", () => {
+function gracefulShutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
 
@@ -20,7 +20,10 @@ process.on("SIGINT", () => {
       logger.error("[SpectraX] Shutdown failed:", error.message);
       process.exit(1);
     });
-});
+}
+
+process.on("SIGINT", gracefulShutdown);
+process.on("SIGTERM", gracefulShutdown);
 
 runtime
   .start()
