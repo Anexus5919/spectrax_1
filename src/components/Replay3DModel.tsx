@@ -466,6 +466,7 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
   const autoAdaptRef      = useRef(true);
   const fpsMonitor        = useRef(new AdaptiveFPSMonitor());
   const frameFloatRef     = useRef(0);
+  const currentFrameIdxRef = useRef(0);
 
   const isPlaying        = externalIsPlaying   !== undefined ? externalIsPlaying   : _isPlaying;
   const currentFrameIdx  = externalFrameIdx    !== undefined ? externalFrameIdx    : _currentFrameIdx;
@@ -474,6 +475,7 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
 
   useEffect(() => { graphicsPresetRef.current = graphicsPreset; }, [graphicsPreset]);
   useEffect(() => { autoAdaptRef.current      = autoAdapt; },     [autoAdapt]);
+  useEffect(() => { currentFrameIdxRef.current = currentFrameIdx; }, [currentFrameIdx]);
 
   // ── Three.js refs ─────────────────────────────────────────────────────────
   const sceneRef    = useRef<THREE.Scene | null>(null);
@@ -1221,14 +1223,14 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
       }
 
       if (isPlaying && time - lastTimeRef.current > 1000 / 8) {
-        const nextFloat = ((frameFloatRef.current ?? currentFrameIdx) + 1) % frames.length;
+        const nextFloat = ((frameFloatRef.current ?? currentFrameIdxRef.current) + 1) % frames.length;
         frameFloatRef.current = nextFloat;
         const nextIdx = Math.round(nextFloat) % frames.length;
         setCurrentFrameIdx(nextIdx);
         lastTimeRef.current = time;
       }
 
-      const renderFloat = isPlaying ? (frameFloatRef.current ?? currentFrameIdx) : currentFrameIdx;
+      const renderFloat = isPlaying ? (frameFloatRef.current ?? currentFrameIdxRef.current) : currentFrameIdxRef.current;
       const interpolatedLm = getInterpolatedLandmarks(frames, renderFloat);
       if (!interpolatedLm) {
         rendererRef.current?.render(sceneRef.current!, cameraRef.current!);
@@ -1237,7 +1239,7 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
 
       const frame      = frames[Math.round(renderFloat) % frames.length];
       const { baseColor, badJoints, mistakeColor } = parseFeedback(frame.feedback);
-      const repCount   = frame.repCount ?? Math.floor(currentFrameIdx / 30);
+      const repCount   = frame.repCount ?? Math.floor(currentFrameIdxRef.current / 30);
       const timeSeconds = time * 0.001;
 
       // Compute depth scale from torso size
@@ -1473,7 +1475,7 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
 
     reqIdRef.current = requestAnimationFrame(renderLoop);
     return () => cancelAnimationFrame(reqIdRef.current);
-  }, [frames, currentFrameIdx, isPlaying, modelLoaded, setCurrentFrameIdx, skin, applyPreset, emitRipple, exerciseName, syncRippleUniforms, updateFallbackSkeletonOcclusion, updateGridPosition, updateSegmentScaleAdaptor, updateStressVectors]);
+  }, [frames, isPlaying, modelLoaded, setCurrentFrameIdx, skin, applyPreset, emitRipple, exerciseName, syncRippleUniforms, updateFallbackSkeletonOcclusion, updateGridPosition, updateSegmentScaleAdaptor, updateStressVectors]);
 
   // ─── No frames guard ─────────────────────────────────────────────────────
   if (!frames || frames.length === 0) {
