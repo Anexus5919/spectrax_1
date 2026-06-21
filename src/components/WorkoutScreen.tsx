@@ -265,6 +265,8 @@ export const WorkoutScreen: React.FC<WorkoutScreenProps> = ({ exercise, onEnd, o
   const frameSkipRef = useRef<number>(0); // frame-skip counter
   const workerRef = useRef<Worker | null>(null); // pose worker
   const pendingLandmarksRef = useRef<any>(null); // latest landmarks for worker
+  const workerInFlightRef = useRef<boolean>(false); // a frame is awaiting a worker reply
+  const workerSkipCountRef = useRef<number>(0); // consecutive frames skipped under backpressure
   const [mismatchError, setMismatchError] = useState<string | null>(null);
 
   const [gestureConfidences, setGestureConfidences] = useState<Record<string, number>>({});
@@ -713,13 +715,20 @@ export const WorkoutScreen: React.FC<WorkoutScreenProps> = ({ exercise, onEnd, o
     pendingLandmarksRef.current = results.poseLandmarks;
     const primaryJoints = exercise.joints?.flat() || [];
 
-    workerRef.current?.postMessage({
-      landmarks: results.poseLandmarks,
-      exercise: exercise.key,
-      frameId: frameSkipRef.current,
-      status: mutableState.current.status,
-      primaryJoints: primaryJoints,
-    });
+    // Backpressure: skip while the worker is busy; cap skips so a dropped reply can't freeze angles
+    if (workerInFlightRef.current && workerSkipCountRef.current < 5) {
+      workerSkipCountRef.current++;
+    } else {
+      workerInFlightRef.current = true;
+      workerSkipCountRef.current = 0;
+      workerRef.current?.postMessage({
+        landmarks: results.poseLandmarks,
+        exercise: exercise.key,
+        frameId: frameSkipRef.current,
+        status: mutableState.current.status,
+        primaryJoints: primaryJoints,
+      });
+    }
 
     // Use last worker result for angles (may be 1 frame stale — acceptable)
     const angles =
@@ -861,9 +870,12 @@ export const WorkoutScreen: React.FC<WorkoutScreenProps> = ({ exercise, onEnd, o
     workerRef.current = worker;
 
     worker.onmessage = (event: MessageEvent) => {
-      const { angles } = event.data;
+      const { angles, frameId } = event.data;
       if (angles) {
         workerAnglesRef.current = angles;
+      }
+      if (frameId !== undefined) {
+        workerInFlightRef.current = false;
       }
     };
 
