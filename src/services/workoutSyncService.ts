@@ -213,31 +213,31 @@ async function updateLocalWorkoutsFromFirestore(
   firestoreWorkouts: WorkoutRecord[],
 ): Promise<void> {
   const db = await openDB();
-  const tx = db.transaction(WORKOUTS_STORE, "readwrite");
-  const store = tx.objectStore(WORKOUTS_STORE);
-
-  // Fetch all existing local records to match by firestore ID
-  const localWorkouts = await new Promise<WorkoutRecord[]>((resolve, reject) => {
-    const req = store.getAll();
-    req.onsuccess = () => resolve(req.result as WorkoutRecord[]);
-    req.onerror = () => reject(req.error);
-  });
 
   return new Promise((resolve, reject) => {
-    firestoreWorkouts.forEach((workout) => {
-      const existing = localWorkouts.find((w) => w.id === workout.id);
-      const recordToStore: WorkoutRecord = {
-        ...workout,
-        synced: true,
-        userId,
-      };
+    const tx = db.transaction(WORKOUTS_STORE, "readwrite");
+    const store = tx.objectStore(WORKOUTS_STORE);
 
-      if (existing && existing.localId) {
-        recordToStore.localId = existing.localId;
-      }
+    // Fetch all existing local records to match by firestore ID
+    const getAllReq = store.getAll();
+    getAllReq.onsuccess = () => {
+      const localWorkouts = getAllReq.result as WorkoutRecord[];
+      firestoreWorkouts.forEach((workout) => {
+        const existing = localWorkouts.find((w) => w.id === workout.id);
+        const recordToStore: WorkoutRecord = {
+          ...workout,
+          synced: true,
+          userId,
+        };
 
-      store.put(recordToStore);
-    });
+        if (existing && existing.localId) {
+          recordToStore.localId = existing.localId;
+        }
+
+        store.put(recordToStore);
+      });
+    };
+    getAllReq.onerror = () => reject(getAllReq.error);
 
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
