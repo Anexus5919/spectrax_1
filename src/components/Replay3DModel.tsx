@@ -471,6 +471,7 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
 
   const isPlaying        = externalIsPlaying   !== undefined ? externalIsPlaying   : _isPlaying;
   const currentFrameIdx  = externalFrameIdx    !== undefined ? externalFrameIdx    : _currentFrameIdx;
+  const isFrameControlled = externalFrameIdx   !== undefined;
   const setIsPlaying     = onPlayToggle ? () => onPlayToggle() : _setIsPlaying;
   const setCurrentFrameIdx = onFrameChange ? onFrameChange : _setCurrentFrameIdx;
 
@@ -1224,7 +1225,7 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
         }
       }
 
-      if (isPlaying && time - lastTimeRef.current > 1000 / 8) {
+      if (isPlaying && !isFrameControlled && time - lastTimeRef.current > 1000 / 8) {
         const nextFloat = ((frameFloatRef.current ?? currentFrameIdxRef.current) + 1) % frames.length;
         frameFloatRef.current = nextFloat;
         const nextIdx = Math.round(nextFloat) % frames.length;
@@ -1232,7 +1233,7 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
         lastTimeRef.current = time;
       }
 
-      const renderFloat = isPlaying ? (frameFloatRef.current ?? currentFrameIdxRef.current) : currentFrameIdxRef.current;
+      const renderFloat = isPlaying && !isFrameControlled ? (frameFloatRef.current ?? currentFrameIdxRef.current) : currentFrameIdxRef.current;
       const interpolatedLm = getInterpolatedLandmarks(frames, renderFloat);
       if (!interpolatedLm) {
         rendererRef.current?.render(sceneRef.current!, cameraRef.current!);
@@ -1483,7 +1484,7 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
 
     reqIdRef.current = requestAnimationFrame(renderLoop);
     return () => cancelAnimationFrame(reqIdRef.current);
-  }, [frames, isPlaying, modelLoaded, setCurrentFrameIdx, skin, applyPreset, emitRipple, exerciseName, syncRippleUniforms, updateFallbackSkeletonOcclusion, updateGridPosition, updateSegmentScaleAdaptor, updateStressVectors]);
+  }, [frames, isPlaying, isFrameControlled, modelLoaded, setCurrentFrameIdx, skin, applyPreset, emitRipple, exerciseName, syncRippleUniforms, updateFallbackSkeletonOcclusion, updateGridPosition, updateSegmentScaleAdaptor, updateStressVectors]);
 
   // ─── No frames guard ─────────────────────────────────────────────────────
   if (!frames || frames.length === 0) {
