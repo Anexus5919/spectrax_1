@@ -346,7 +346,11 @@ export async function deleteWorkoutFromFirestore(
 /**
  * Sync all unsynced workouts to Firestore
  */
+let syncInProgress = false;
+
 export async function syncWorkoutsToFirestore(userId: string): Promise<number> {
+  if (syncInProgress) return 0;
+  syncInProgress = true;
   try {
     const unsyncedWorkouts = await getUnsyncedWorkouts(userId);
     let syncedCount = 0;
@@ -369,6 +373,8 @@ export async function syncWorkoutsToFirestore(userId: string): Promise<number> {
   } catch (error) {
     console.error("Error syncing workouts to Firestore:", error);
     throw error;
+  } finally {
+    syncInProgress = false;
   }
 }
 
@@ -428,8 +434,6 @@ export async function fullSyncWorkouts(userId: string): Promise<SyncStatus> {
 // Offline Detection & Auto-Sync
 // ─────────────────────────────────────────────────────────────────────────────
 
-let syncInProgress = false;
-
 /**
  * Start auto-sync when connection is restored
  */
@@ -453,15 +457,11 @@ export function initializeAutoSync(userId: string): void {
 
   // Fallback to standard online/offline event handlers
   onlineHandler = async () => {
-    if (syncInProgress) return;
     try {
-      syncInProgress = true;
       const syncedCount = await syncWorkoutsToFirestore(userId);
       console.log(`Successfully synced ${syncedCount} workouts.`);
     } catch (err) {
       console.error("Auto-sync failed:", err);
-    } finally {
-      syncInProgress = false;
     }
   };
 
