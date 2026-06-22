@@ -24,6 +24,7 @@ import { useRegisterSW } from "virtual:pwa-register/react";
 import { estimateCalories, getSavedUserWeight } from "./utils/calorieEstimator";
 import { CursorGlow } from "./components/CursorGlow";
 import { PageErrorBoundary } from "./components/PageErrorBoundary";
+import { ExitConfirmModal } from "./components/ExitConfirmModal";
 const WelcomeScreen = lazy(() => import("./components/WelcomeScreen").then(m => ({ default: m.WelcomeScreen })));
 const SummaryScreen = lazy(() => import("./components/SummaryScreen").then(m => ({ default: m.SummaryScreen })));
 const TrophyRoom = lazy(() => import("./components/TrophyRoom").then(m => ({ default: m.TrophyRoom })));
@@ -488,79 +489,17 @@ function App() {
         </div>
       )}
       {showExitModal && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 999,
-            backdropFilter: "blur(8px)",
+        <ExitConfirmModal
+          message="Are you sure you want to end your session?"
+          onStay={() => setShowExitModal(false)}
+          onExit={() => {
+            setShowExitModal(false);
+            if (user?.uid) {
+              localStorage.removeItem(`spectrax_telemetry_snapshot_${user.uid}`);
+            }
+            navigateTo('welcome');
           }}
-        >
-          <div
-            style={{
-              background: "rgba(255,255,255,0.1)",
-              border: "1px solid rgba(255,255,255,0.2)",
-              borderRadius: "20px",
-              padding: "30px",
-              width: "320px",
-              textAlign: "center",
-              color: "white",
-              backdropFilter: "blur(15px)",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-            }}
-          >
-            <h2>Confirm Exit</h2>
-
-            <p>Are you sure you want to end your session?</p>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginTop: "20px",
-              }}
-            >
-              <button
-                onClick={() => setShowExitModal(false)}
-                style={{
-                  padding: "10px 20px",
-                  borderRadius: "10px",
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                Stay
-              </button>
-
-              <button
-                onClick={() => {
-                  setShowExitModal(false);
-                  if (user?.uid) {
-                    localStorage.removeItem(`spectrax_telemetry_snapshot_${user.uid}`);
-                  }
-                  navigateTo('welcome');
-                }}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  background: '#ff4d4f',
-                  color: 'white'
-                }}
-              >
-                Exit
-              </button>
-            </div>
-          </div>
-        </div>
+        />
       )}
     </main>
   );

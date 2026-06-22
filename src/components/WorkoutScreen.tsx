@@ -18,6 +18,7 @@ import { initialSquatDepthStats } from '../services/Squat_depth_classifier';
 import { useWorkoutSync } from '../hooks/useWorkoutSync';
 import { useDisplayConfig } from '../hooks/useDisplayConfig';
 import { audioFeedbackService } from '../services/audioFeedbackService';
+import { ExitConfirmModal } from './ExitConfirmModal';
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket';
 import { useOffscreenCanvas } from '../hooks/useOffscreenCanvas';
 import { injuryRiskEngine } from '../services/injuryRiskEngine';
@@ -1924,59 +1925,11 @@ export const WorkoutScreen: React.FC<WorkoutScreenProps> = ({ exercise, onEnd, o
       `}</style>
 
       {showExitModal && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            background: 'rgba(0,0,0,0.6)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 999,
-            backdropFilter: 'blur(8px)'
-          }}
-        >
-          <div
-            style={{
-              background: 'var(--bg-card)',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: '20px',
-              padding: '30px',
-              width: '320px',
-              textAlign: 'center',
-              color: 'white',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
-            }}
-          >
-            <h2>Confirm Exit</h2>
-            <p>Are you sure you want to end your workout session?</p>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'center',
-                gap: '20px',
-                marginTop: '20px'
-              }}
-            >
-              <button
-                className="btn-neon"
-                onClick={() => setShowExitModal(false)}
-              >
-                Stay
-              </button>
-              <button
-                className="btn-neon"
-                style={{ background: 'var(--neon-red)' }}
-                onClick={handleEnd}
-              >
-                Exit
-              </button>
-            </div>
-          </div>
-        </div>
+        <ExitConfirmModal
+          message="Are you sure you want to end your workout session?"
+          onStay={() => setShowExitModal(false)}
+          onExit={handleEnd}
+        />
       )}
       </CameraErrorBoundary>
     </div>
