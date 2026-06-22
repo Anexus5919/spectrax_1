@@ -164,7 +164,7 @@ export const ReplayScreen: React.FC<ReplayScreenProps> = ({
             style={{
               fontSize: '0.65rem',
               letterSpacing: '3px',
-              color: isGoodForm ? '#00ff88' : '#ffcc00',
+              color: isGoodForm ? 'var(--neon-green)' : 'var(--neon-yellow)',
               textTransform: 'uppercase',
               marginBottom: '4px',
             }}
@@ -175,9 +175,9 @@ export const ReplayScreen: React.FC<ReplayScreenProps> = ({
             style={{
               fontSize: '1.8rem',
               fontWeight: 900,
-              color: isGoodForm ? '#00ff88' : '#ffcc00',
+              color: isGoodForm ? 'var(--neon-green)' : 'var(--neon-yellow)',
               letterSpacing: '1px',
-              textShadow: isGoodForm ? '0 0 20px #00ff8888' : '0 0 20px #ffcc0088',
+              textShadow: isGoodForm ? '0 0 20px var(--neon-green)' : '0 0 20px var(--neon-yellow)',
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
