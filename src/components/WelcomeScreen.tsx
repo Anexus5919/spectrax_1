@@ -409,6 +409,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                     const categoryColor = bmiCategoryColor(bmiResult.category);
                     return (
                       <div
+                        role="status"
                         style={{
                           display: "flex",
                           alignItems: "center",
