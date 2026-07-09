@@ -48,6 +48,7 @@ interface WelcomeScreenProps {
   onViewFitnessCalculator?: () => void;
   onViewAvatarCustomization?: () => void;
   onViewWorkoutPlans: () => void;
+  onViewTutorials?: () => void;
 
   navigateTo: (screen: string) => void;
  
@@ -71,8 +72,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onViewFitnessCalculator,
   onViewAvatarCustomization,
   onViewWorkoutPlans,
+  onViewTutorials,
   
   leveling,
+
   activePlan,
   onStartWorkout,
 }) => {
@@ -251,6 +254,17 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   <User size={15} />
                   Avatar
                 </button>
+                {onViewTutorials && (
+                  <button
+                    onClick={onViewTutorials}
+                    className="welcome-btn-secondary welcome-btn-secondary--cyan"
+                    aria-label="View Tutorials"
+                    tabIndex={0}
+                  >
+                    <FileText size={15} />
+                    Tutorials
+                  </button>
+                )}
                 <button
                   onClick={onViewHistory}
                   className="welcome-btn-secondary welcome-btn-secondary--cyan"
@@ -260,6 +274,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                   <History size={15} />
                   History
                 </button>
+
                 <button
                   onClick={onViewWorkoutPlans}
                   className="welcome-btn-secondary welcome-btn-secondary--purple"
