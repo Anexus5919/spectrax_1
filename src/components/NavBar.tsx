@@ -3,6 +3,8 @@ import '../styles/NavBar.css';
 import { Home, Activity, Award, SunMedium, Menu, Scale} from 'lucide-react';
 import { Tracker } from './Tracker/Tracker';
 
+import { ConnectionStatusIndicator } from './ConnectionStatusIndicator';
+
 interface NavBarProps {
   navigateTo: (screen: string) => void;
   theme: string;
@@ -147,6 +149,7 @@ export const NavBar: React.FC<NavBarProps> = ({ navigateTo, theme, setTheme }) =
         <div className="nav-brand" onClick={() => navigateTo('welcome')}>
           <Home size={18} />
           <span className="brand-text">SpectraX</span>
+          <ConnectionStatusIndicator />
         </div>
         <Tracker />
       </div>
