@@ -154,7 +154,7 @@ export const NavBar: React.FC<NavBarProps> = ({ navigateTo, theme, setTheme }) =
         <Tracker />
       </div>
 
-      <nav className={`nav-center ${open ? 'open' : ''}`} aria-hidden={!open}>
+      <nav id="primary-navigation" className={`nav-center ${open ? 'open' : ''}`}>
         {navItem('BMI', () => navigateTo('fitness'), Scale)}
         {navItem('History', () => navigateTo('history'), Activity)}
         {navItem('Trophies', () => navigateTo('trophy'), Award)}
@@ -166,7 +166,7 @@ export const NavBar: React.FC<NavBarProps> = ({ navigateTo, theme, setTheme }) =
           <span className="nav-label">{theme.replace('-', ' ')}</span>
         </button>
 
-        <button className="mobile-menu has-tooltip tooltip-bottom" data-tooltip="Toggle menu" onClick={() => setOpen((s) => !s)} aria-label="Toggle menu">
+        <button className="mobile-menu has-tooltip tooltip-bottom" data-tooltip="Toggle menu" onClick={() => setOpen((s) => !s)} aria-label="Toggle menu" aria-expanded={open} aria-controls="primary-navigation">
           <Menu />
         </button>
       </div>
