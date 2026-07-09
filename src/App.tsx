@@ -80,6 +80,7 @@ const SCREEN_TRANSITIONS: ScreenTransitionMap = {
   workoutPlans: ["welcome"],
 };
 
+
 const canTransitionTo = (from: Screen, to: Screen) => {
   return SCREEN_TRANSITIONS[from].includes(to);
 };
@@ -324,10 +325,11 @@ function App() {
       <NavBar navigateTo={navigateTo} theme={theme} setTheme={setTheme} />
       <div
         className={`theme-selector-segmented ${currentScreen === "workout" ? "workout-active" : ""
-          } ${["summary", "replay", "history", "trophy", "fitness"].includes(currentScreen)
+          } ${["summary", "replay", "history", "trophy", "fitness", "tutorials"].includes(currentScreen)
             ? "is-hidden"
             : ""
           }`}
+
       >
         <div className={`selector-indicator theme-${theme}`} />
         <button
@@ -367,6 +369,7 @@ function App() {
         />
       )}
 
+
       <Suspense fallback={<GridSkeleton />}>
         {currentScreen === "calibration" && (
           <PageErrorBoundary fallbackMessage="Failed to load calibration. Please try again.">
@@ -380,15 +383,22 @@ function App() {
           </PageErrorBoundary>
         )}
         {currentScreen === "privacy" && (
-    <PageErrorBoundary fallbackMessage="Failed to load Privacy page.">
-      <PrivacyPage onBack={() => navigateTo("welcome")} />
-    </PageErrorBoundary>
-  )}
+          <PageErrorBoundary fallbackMessage="Failed to load Privacy page.">
+            <PrivacyPage onBack={() => navigateTo("welcome")} />
+          </PageErrorBoundary>
+        )}
 
-  {currentScreen === "terms&conditions" && (
-    <PageErrorBoundary fallbackMessage="Failed to load Terms page.">
-      <TermsAndConditions onBack={() => navigateTo("welcome")} />
-    </PageErrorBoundary>)}
+        {currentScreen === "terms&conditions" && (
+          <PageErrorBoundary fallbackMessage="Failed to load Terms page.">
+            <TermsAndConditions onBack={() => navigateTo("welcome")} />
+          </PageErrorBoundary>
+        )}
+
+        {currentScreen === "battle" && (
+          <PageErrorBoundary fallbackMessage="Failed to load Battle Mode. Please try again.">
+            <BattleMode onBack={() => navigateTo("welcome")} />
+          </PageErrorBoundary>
+        )}
         {currentScreen === "workout" && (
           <PageErrorBoundary fallbackMessage="Something went wrong during your workout. Your progress has been saved.">
             <WorkoutScreen
@@ -442,6 +452,21 @@ function App() {
         {currentScreen === "avatar" && (
           <Suspense fallback={<div className="loading-fallback">Loading Avatar Customization...</div>}>
             <AvatarCustomizationScreen onBack={() => navigateTo("welcome")} />
+          </Suspense>
+        )}
+
+        {currentScreen === "tutorials" && (
+          <Suspense fallback={<div className="loading-fallback">Loading Tutorials...</div>}>
+            <TutorialsScreen
+              onBack={() => navigateTo("welcome")}
+              onStartTryMode={(exerciseKey) => {
+                const config = exercises[exerciseKey];
+                if (config) {
+                  setSelectedExercise(config);
+                  navigateTo("calibration");
+                }
+              }}
+            />
           </Suspense>
         )}
 
@@ -503,79 +528,17 @@ function App() {
         </div>
       )}
       {showExitModal && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            zIndex: 999,
-            backdropFilter: "blur(8px)",
+        <ExitConfirmModal
+          message="Are you sure you want to end your session?"
+          onStay={() => setShowExitModal(false)}
+          onExit={() => {
+            setShowExitModal(false);
+            if (user?.uid) {
+              localStorage.removeItem(`spectrax_telemetry_snapshot_${user.uid}`);
+            }
+            navigateTo('welcome');
           }}
-        >
-          <div
-            style={{
-              background: "rgba(255,255,255,0.1)",
-              border: "1px solid rgba(255,255,255,0.2)",
-              borderRadius: "20px",
-              padding: "30px",
-              width: "320px",
-              textAlign: "center",
-              color: "white",
-              backdropFilter: "blur(15px)",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-            }}
-          >
-            <h2>Confirm Exit</h2>
-
-            <p>Are you sure you want to end your session?</p>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginTop: "20px",
-              }}
-            >
-              <button
-                onClick={() => setShowExitModal(false)}
-                style={{
-                  padding: "10px 20px",
-                  borderRadius: "10px",
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                Stay
-              </button>
-
-              <button
-                onClick={() => {
-                  setShowExitModal(false);
-                  if (user?.uid) {
-                    localStorage.removeItem(`spectrax_telemetry_snapshot_${user.uid}`);
-                  }
-                  navigateTo('welcome');
-                }}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  background: '#ff4d4f',
-                  color: 'white'
-                }}
-              >
-                Exit
-              </button>
-            </div>
-          </div>
-        </div>
+        />
       )}
     </main>
   );

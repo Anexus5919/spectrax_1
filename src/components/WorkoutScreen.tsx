@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import Draggable, { type DraggableData, type DraggableEvent } from 'react-draggable';
-import { StopCircle, ArrowUpCircle, ArrowDownCircle, Lock, Unlock, Activity, Volume2, VolumeX } from 'lucide-react';
+import { StopCircle, ArrowUpCircle, ArrowDownCircle, Lock, Unlock, Activity, Volume2, VolumeX, ShieldAlert } from 'lucide-react';
 import { CameraPermissionRecovery } from './CameraPermissionRecovery';
 import { useCameraPose } from '../hooks/useCameraPose';
 import { poseService } from '../services/poseService';
 import { overlayRenderer } from '../services/overlayRenderer';
-import { getJointAngles, getJointVisibility } from '../services/angleUtils';
+import { getJointAngles, getJointVisibility } from '../utils/poseMath';
 import { getPostureErrorCategories } from '../engine/feedbackEngine';
 import { exerciseEngine, EngineState } from '../services/exerciseEngine';
+import { CameraView } from './CameraView/CameraView';
 import { ExerciseConfig } from '../config/exercises';
 import { sessionRecorder, type FrameData } from '../services/sessionRecorder';
 import { skeletalSense } from '../services/skeletalSense'; // Kept on main thread for reliable auto-detect
@@ -18,6 +19,7 @@ import { initialSquatDepthStats } from '../services/Squat_depth_classifier';
 import { useWorkoutSync } from '../hooks/useWorkoutSync';
 import { useDisplayConfig } from '../hooks/useDisplayConfig';
 import { audioFeedbackService } from '../services/audioFeedbackService';
+import { ExitConfirmModal } from './ExitConfirmModal';
 import { useWorkoutWebSocket } from '../hooks/useWorkoutWebSocket';
 import { useOffscreenCanvas } from '../hooks/useOffscreenCanvas';
 import { injuryRiskEngine } from '../services/injuryRiskEngine';
@@ -736,14 +738,19 @@ export const WorkoutScreen: React.FC<WorkoutScreenProps> = ({ exercise, onEnd, o
 
     const visibility = getJointVisibility(results.poseLandmarks);
 
-    // Adjust structural thresholds dynamically based on active detected body type
+    // Adjust structural thresholds dynamically based on active detected body type or calibrated profile
     const activeConfig = { ...exercise };
-    if (bodyTypeRef.current === "endo" && activeConfig.key === "squat") {
-      activeConfig.downThreshold += 5; // Softer extension limit due to compacted torso proportions
-    } else if (bodyTypeRef.current === "ecto" && activeConfig.key === "squat") {
-      activeConfig.downThreshold -= 5; // Stricter requirement for longer limbs to reach true parallel
-    } else if (bodyTypeRef.current === "endo" && activeConfig.key === "pushup") {
-      activeConfig.downThreshold -= 5; // Wider torsos reach absolute down plane sooner
+    const calib = settings.calibrationProfile?.[exercise.key];
+    if (calib && calib.calibratedThreshold) {
+      activeConfig.downThreshold = calib.calibratedThreshold;
+    } else {
+      if (bodyTypeRef.current === "endo" && activeConfig.key === "squat") {
+        activeConfig.downThreshold += 5; // Softer extension limit due to compacted torso proportions
+      } else if (bodyTypeRef.current === "ecto" && activeConfig.key === "squat") {
+        activeConfig.downThreshold -= 5; // Stricter requirement for longer limbs to reach true parallel
+      } else if (bodyTypeRef.current === "endo" && activeConfig.key === "pushup") {
+        activeConfig.downThreshold -= 5; // Wider torsos reach absolute down plane sooner
+      }
     }
 
     // 2. Process through multi-exercise engine (stays on main thread — manages state)
@@ -819,7 +826,7 @@ export const WorkoutScreen: React.FC<WorkoutScreenProps> = ({ exercise, onEnd, o
       
       overlayRenderer.draw(results, nextState.status, primaryJoints, errorJoints);
     }
-  }, [exercise, depth3DEnabled, handleEnd]);
+  }, [exercise, depth3DEnabled, handleEnd, settings]);
 
   const handleFrameTick = useCallback((count: number) => {
     setVlmProgress(clipEngine.getProgress());
@@ -1038,49 +1045,11 @@ export const WorkoutScreen: React.FC<WorkoutScreenProps> = ({ exercise, onEnd, o
       )}
       <CameraErrorBoundary>
       {/* Background Video Layer */}
-      <div
-        className="camera-viewport"
-        style={{ position: "absolute", inset: 0 }}
-      >
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            opacity: 0.4,
-            transform: "scaleX(-1)",
-          }}
-        />
-        <canvas
-          ref={canvasRef}
-          width={1280}
-          height={720}
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            transform: "scaleX(-1)",
-          }}
-        />
-        {engineState.status === "red" && (
-          <div className="workout-error-flash" style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            boxShadow: 'inset 0 0 100px rgba(255, 0, 0, 0.7)',
-            pointerEvents: 'none',
-            zIndex: 10,
-            animation: 'pulse 1s infinite'
-          }} />
-        )}
-      </div>
+      <CameraView
+        videoRef={videoRef}
+        canvasRef={canvasRef}
+        status={engineState.status}
+      />
 
       {/* Target Overlays for IndexedDB State logic */}
       {displayConfig.fpsDisplay && (
@@ -1924,59 +1893,11 @@ export const WorkoutScreen: React.FC<WorkoutScreenProps> = ({ exercise, onEnd, o
       `}</style>
 
       {showExitModal && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            background: 'rgba(0,0,0,0.6)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 999,
-            backdropFilter: 'blur(8px)'
-          }}
-        >
-          <div
-            style={{
-              background: 'var(--bg-card)',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: '20px',
-              padding: '30px',
-              width: '320px',
-              textAlign: 'center',
-              color: 'white',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
-            }}
-          >
-            <h2>Confirm Exit</h2>
-            <p>Are you sure you want to end your workout session?</p>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'center',
-                gap: '20px',
-                marginTop: '20px'
-              }}
-            >
-              <button
-                className="btn-neon"
-                onClick={() => setShowExitModal(false)}
-              >
-                Stay
-              </button>
-              <button
-                className="btn-neon"
-                style={{ background: 'var(--neon-red)' }}
-                onClick={handleEnd}
-              >
-                Exit
-              </button>
-            </div>
-          </div>
-        </div>
+        <ExitConfirmModal
+          message="Are you sure you want to end your workout session?"
+          onStay={() => setShowExitModal(false)}
+          onExit={handleEnd}
+        />
       )}
       </CameraErrorBoundary>
     </div>
