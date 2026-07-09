@@ -218,10 +218,11 @@ async function updateLocalWorkoutsFromFirestore(
     const tx = db.transaction(WORKOUTS_STORE, "readwrite");
     const store = tx.objectStore(WORKOUTS_STORE);
 
-    // Fetch all existing local records to match by firestore ID
-    const getAllReq = store.getAll();
-    getAllReq.onsuccess = () => {
-      const localWorkouts = getAllReq.result as WorkoutRecord[];
+    // Fetch only this user's local records to prevent cross-user data exposure
+    const index = store.index("userId");
+    const getUserReq = index.getAll(IDBKeyRange.only(userId));
+    getUserReq.onsuccess = () => {
+      const localWorkouts = getUserReq.result as WorkoutRecord[];
       firestoreWorkouts.forEach((workout) => {
         const existing = localWorkouts.find((w) => w.id === workout.id);
         const recordToStore: WorkoutRecord = {
@@ -237,7 +238,7 @@ async function updateLocalWorkoutsFromFirestore(
         store.put(recordToStore);
       });
     };
-    getAllReq.onerror = () => reject(getAllReq.error);
+    getUserReq.onerror = () => reject(getUserReq.error);
 
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -352,16 +353,22 @@ export async function syncWorkoutsToFirestore(userId: string): Promise<number> {
     let syncedCount = 0;
 
     for (const workout of unsyncedWorkouts) {
+      let firestoreId: string | undefined;
       try {
-        const firestoreId = await uploadWorkoutToFirestore(workout);
+        firestoreId = await uploadWorkoutToFirestore(workout);
         const targetId = workout.localId ?? workout.id;
         if (targetId !== undefined) {
-          await markWorkoutAsSynced(targetId as any, firestoreId);
-          syncedCount++;
+          try {
+            await markWorkoutAsSynced(targetId as any, firestoreId);
+            syncedCount++;
+          } catch (syncError) {
+            // markWorkoutAsSynced failed — rollback orphaned Firestore doc
+            try { await deleteDoc(doc(getFirestore(), "users", userId, "workouts", firestoreId)); } catch { /* rollback best-effort */ }
+            throw syncError;
+          }
         }
       } catch (error) {
         console.error(`Failed to sync workout with localId ${workout.localId}:`, error);
-        // Continue with next workout instead of throwing
       }
     }
 
@@ -577,9 +584,10 @@ export async function bulkUploadWorkouts(
           await markWorkoutAsSynced(localKey, firestoreId);
         } catch (syncError) {
           console.error(
-            `[SpectraX] Failed to mark workout ${localKey} as synced locally:`,
+            `[SpectraX] Failed to mark workout ${localKey} as synced locally — rolling back Firestore doc ${firestoreId}:`,
             syncError,
           );
+          try { await deleteDoc(doc(db, "users", userId, "workouts", firestoreId)); } catch { /* rollback best-effort */ }
         }
       }
     }
@@ -599,13 +607,54 @@ export async function deleteWorkout(
   id: string | number
 ): Promise<void> {
   const db = await openDB();
-  
-  // 1. Delete locally from IndexedDB
+
+  // 1. Verify the record belongs to this user before deleting
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(WORKOUTS_STORE, "readwrite");
-    const req = tx.objectStore(WORKOUTS_STORE).delete(id);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
+    const store = tx.objectStore(WORKOUTS_STORE);
+
+    if (typeof id === "string") {
+      // String IDs are Firestore document IDs — keyPath is localId (number),
+      // so iterate via cursor to find the matching record
+      const cursorReq = store.openCursor();
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (!cursor) {
+          // Not found locally; resolve so Firestore delete still runs
+          resolve();
+          return;
+        }
+        const record = cursor.value as WorkoutRecord;
+        if (record.id === id) {
+          if (record.userId !== userId) {
+            reject(new Error("Workout does not belong to the specified user"));
+            return;
+          }
+          const delReq = cursor.delete();
+          delReq.onsuccess = () => resolve();
+          delReq.onerror = () => reject(delReq.error);
+          return;
+        }
+        cursor.continue();
+      };
+      cursorReq.onerror = () => reject(cursorReq.error);
+      tx.onerror = () => reject(tx.error);
+    } else {
+      // Numeric ID is the localId keyPath — direct lookup works
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const record = getReq.result as WorkoutRecord | undefined;
+        if (record && record.userId !== userId) {
+          reject(new Error("Workout does not belong to the specified user"));
+          return;
+        }
+        const delReq = store.delete(id);
+        delReq.onsuccess = () => resolve();
+        delReq.onerror = () => reject(delReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+      tx.onerror = () => reject(tx.error);
+    }
   });
 
   // 2. Delete from Firestore if it was synced (string ID)

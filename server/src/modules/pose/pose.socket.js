@@ -1,4 +1,4 @@
-const { DEFAULT_EXERCISE } = require("../../shared/constants/exercises");
+const { DEFAULT_EXERCISE, SUPPORTED_EXERCISES } = require("../../shared/constants/exercises");
 const { processPose } = require("./pose.service");
 const {
   hasPoseLandmarks,
@@ -7,8 +7,8 @@ const {
 } = require("./pose.validator");
 const { MAX_FRAMES_PER_SEC } = require("../../config/constants");
 
+
 function registerPoseSocketHandlers({ socket, sessionService }) {
-  // Move frameTimestamps to function scope for test isolation
   const frameTimestamps = new Map();
   const invalidFrameTimestamps = new Map();
   frameTimestamps.set(socket.id, []);
@@ -49,9 +49,18 @@ function registerPoseSocketHandlers({ socket, sessionService }) {
       return;
     }
 
+    const exerciseSupported = isSupportedExercise(data.exercise);
+    if (!exerciseSupported && data.exercise) {
+      socket.emit("exercise:unsupported", {
+        received: data.exercise,
+        fallback: DEFAULT_EXERCISE,
+        supported: SUPPORTED_EXERCISES,
+      });
+    }
+
     const normalizedData = {
       ...data,
-      exercise: isSupportedExercise(data.exercise)
+      exercise: exerciseSupported
         ? data.exercise
         : DEFAULT_EXERCISE,
     };
