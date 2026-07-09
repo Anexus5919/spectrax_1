@@ -40,6 +40,8 @@ const ReplayScreen = lazy(() => import("./components/ReplayScreen").then(m => ({
 const AvatarCustomizationScreen = lazy(() => import("./components/AvatarCustomizationScreen").then(m => ({ default: m.AvatarCustomizationScreen })));
 const BattleMode = lazy(() => import("./components/BattleMode/BattleMode").then(m => ({ default: m.BattleMode })));
 
+const MultiplayerRoomScreen = lazy(() => import("./components/MultiplayerRoomScreen").then(m => ({ default: m.MultiplayerRoomScreen })));
+
 type Screen =
   | "welcome"
   | "calibration"
@@ -56,13 +58,14 @@ type Screen =
   | "profile"
   | "fitness"
   | "avatar"
+  | "multiplayer"
   | "privacy"
   | "terms&conditions";
 
 type ScreenTransitionMap = Record<Screen, readonly Screen[]>;
 
 const SCREEN_TRANSITIONS: ScreenTransitionMap = {
-  welcome: ["calibration", "history", "trophy", "profile", "login", "fitness", "about", "contact", "avatar", "privacy", "terms&conditions"],
+  welcome: ["calibration", "history", "trophy", "profile", "login", "fitness", "about", "contact", "avatar", "multiplayer", "privacy", "terms&conditions"],
   calibration: ["workout", "welcome", "login"],
   workout: ["summary", "welcome"],
   summary: ["replay", "welcome"],
@@ -77,7 +80,8 @@ const SCREEN_TRANSITIONS: ScreenTransitionMap = {
   about: ["welcome"],
   contact: ["welcome"],
   avatar: ["welcome"],
-  "privacy": ["welcome"],
+  multiplayer: ["welcome"],
+  privacy: ["welcome"],
   "terms&conditions": ["welcome"],
 };
 
@@ -450,6 +454,14 @@ function App() {
           <Suspense fallback={<div className="loading-fallback">Loading Avatar Customization...</div>}>
             <AvatarCustomizationScreen onBack={() => navigateTo("welcome")} />
           </Suspense>
+        )}
+
+        {currentScreen === "multiplayer" && (
+          <PageErrorBoundary fallbackMessage="Failed to load Multiplayer room. Please try again.">
+            <Suspense fallback={<div className="loading-fallback">Loading Multiplayer lobby...</div>}>
+              <MultiplayerRoomScreen onBack={() => navigateTo("welcome")} user={user} />
+            </Suspense>
+          </PageErrorBoundary>
         )}
 
         {currentScreen === "fitness" && (

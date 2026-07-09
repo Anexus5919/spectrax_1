@@ -289,6 +289,23 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                     BMI
                   </button>
                 )}
+                <button
+                  onClick={() => navigateTo("multiplayer")}
+                  className="welcome-btn-secondary welcome-btn-secondary--blue"
+                  aria-label="Join Multiplayer Workout"
+                  tabIndex={0}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    background: "rgba(0, 240, 255, 0.1)",
+                    border: "1px solid rgba(0, 240, 255, 0.3)",
+                    boxShadow: "0 0 10px rgba(0, 240, 255, 0.15)"
+                  }}
+                >
+                  <Users size={15} />
+                  Live Battle
+                </button>
               </div>
             </div>
 
