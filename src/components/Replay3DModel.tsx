@@ -1051,7 +1051,8 @@ export const Replay3DModel: React.FC<Replay3DModelProps> = ({
           const { width: w, height: h } = entry.contentRect;
           if (w === 0 || h === 0) return;
           rendererRef.current.setSize(w, h);
-          rendererRef.current.setPixelRatio(window.devicePixelRatio);
+          const cfg = GRAPHICS_PRESETS[graphicsPresetRef.current];
+          rendererRef.current.setPixelRatio(Math.min(cfg.pixelRatio, window.devicePixelRatio ?? 1));
           cameraRef.current.aspect = w / h;
           cameraRef.current.updateProjectionMatrix();
           composerRef.current?.setSize(w, h);
