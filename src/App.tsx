@@ -77,7 +77,7 @@ const SCREEN_TRANSITIONS: ScreenTransitionMap = {
   about: ["welcome"],
   contact: ["welcome"],
   avatar: ["welcome"],
-  privacy: ["welcome"],
+  "privacy": ["welcome"],
   "terms&conditions": ["welcome"],
 };
 
