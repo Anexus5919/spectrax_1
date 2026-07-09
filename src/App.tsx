@@ -24,7 +24,7 @@ import { useRegisterSW } from "virtual:pwa-register/react";
 import { estimateCalories, getSavedUserWeight } from "./utils/calorieEstimator";
 import { CursorGlow } from "./components/CursorGlow";
 import { PageErrorBoundary } from "./components/PageErrorBoundary";
-import { ExitConfirmModal } from "./components/ExitConfirmModal";
+import type { ActivePlan } from "./components/WorkoutPlansScreen";
 const WelcomeScreen = lazy(() => import("./components/WelcomeScreen").then(m => ({ default: m.WelcomeScreen })));
 const SummaryScreen = lazy(() => import("./components/SummaryScreen").then(m => ({ default: m.SummaryScreen })));
 const TrophyRoom = lazy(() => import("./components/TrophyRoom").then(m => ({ default: m.TrophyRoom })));
@@ -39,8 +39,7 @@ const CalibrationScreen = lazy(() => import("./components/CalibrationScreen").th
 const WorkoutScreen = lazy(() => import("./components/WorkoutScreen").then(m => ({ default: m.WorkoutScreen })));
 const ReplayScreen = lazy(() => import("./components/ReplayScreen").then(m => ({ default: m.ReplayScreen })));
 const AvatarCustomizationScreen = lazy(() => import("./components/AvatarCustomizationScreen").then(m => ({ default: m.AvatarCustomizationScreen })));
-const TutorialsScreen = lazy(() => import("./components/TutorialsScreen").then(m => ({ default: m.TutorialsScreen })));
-
+const WorkoutPlansScreen = lazy(() => import("./components/WorkoutPlansScreen").then(m => ({ default: m.WorkoutPlansScreen })));
 
 type Screen =
   | "welcome"
@@ -58,15 +57,12 @@ type Screen =
   | "profile"
   | "fitness"
   | "avatar"
-  | "privacy"
-  | "terms&conditions"
-  | "tutorials";
-
+  | "workoutPlans";
 
 type ScreenTransitionMap = Record<Screen, readonly Screen[]>;
 
 const SCREEN_TRANSITIONS: ScreenTransitionMap = {
-  welcome: ["calibration", "history", "trophy", "profile", "login", "fitness", "about", "contact", "avatar", "tutorials", "privacy", "terms&conditions"],
+  welcome: ["calibration", "history", "trophy", "profile", "login", "fitness", "about", "contact", "avatar", "workoutPlans"],
   calibration: ["workout", "welcome", "login"],
   workout: ["summary", "welcome"],
   summary: ["replay", "welcome"],
@@ -81,9 +77,7 @@ const SCREEN_TRANSITIONS: ScreenTransitionMap = {
   about: ["welcome"],
   contact: ["welcome"],
   avatar: ["welcome"],
-  privacy: ["welcome"],
-  "terms&conditions": ["welcome"],
-  tutorials: ["welcome", "calibration"],
+  workoutPlans: ["welcome"],
 };
 
 
@@ -127,6 +121,7 @@ function App() {
   const { theme, setTheme } = useTheme();
   const { user, loading: authLoading } = useAuth();
   const [currentScreen, setCurrentScreen] = useState<Screen>("welcome");
+  const [activePlan, setActivePlan] = useState<ActivePlan | null>(null);
 
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -369,8 +364,7 @@ function App() {
           onViewProfile={() => navigateTo("profile")}
           onViewFitnessCalculator={() => navigateTo("fitness")}
           onViewAvatarCustomization={() => navigateTo("avatar")}
-          onViewWorkoutPlans={() => {}}
-          onViewTutorials={() => navigateTo("tutorials")}
+          onViewWorkoutPlans={() => navigateTo("workoutPlans")}
           leveling={leveling}
         />
       )}
@@ -480,6 +474,15 @@ function App() {
           <FitnessCalculator onBack={() => navigateTo("welcome")} />
         )}
 
+        {currentScreen === "workoutPlans" && (
+          <PageErrorBoundary fallbackMessage="Failed to load workout plans. Please try again.">
+            <WorkoutPlansScreen
+              onBack={() => navigateTo("welcome")}
+              activePlan={activePlan}
+              setActivePlan={setActivePlan}
+            />
+          </PageErrorBoundary>
+        )}
       </Suspense>
 
       {currentScreen === "about" && (
